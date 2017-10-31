@@ -148,120 +148,8 @@ module.exports = Generator.extend({
         this.env.error(chalk.red('Property appName is missing from the specification'))
       }
 
-      // Service configuration
-      this.services = this.spec.services || {}
-
       // Bluemix configuration
-      this.bluemix = {
-        backendPlatform: 'SWIFT',
-        name: helpers.sanitizeAppName(this.projectName),
-        server: {
-          name: helpers.sanitizeAppName(this.projectName),
-          env: {}
-        }
-      }
-      if (Object.keys(this.services).length > 0) {
-        this.bluemix.server.services = []
-
-        // Ensure every service has a credentials object, plan, & label
-        // and add the services to bluemix.server.services
-        Object.keys(this.services).forEach(function (serviceType) {
-          if (!Array.isArray(this.services[serviceType])) {
-            this.env.error(chalk.red(`Property services.${serviceType} must be an array`))
-          }
-          this.services[serviceType].forEach(function (service, index) {
-            // TODO: Further checking that service name is valid?
-            if (!service.name) {
-              this.env.error(chalk.red(`Service name is missing in spec for services.${serviceType}[${index}]`))
-            }
-            if (!service.label) {
-              service.label = helpers.getBluemixServiceLabel(serviceType)
-            }
-            if (!service.plan) {
-              service.plan = helpers.getBluemixDefaultPlan(serviceType)
-            }
-            service.credentials = service.credentials || {}
-            this.bluemix.server.services.push(service.name)
-          }.bind(this))
-        }.bind(this))
-      }
-
-      if (typeof (this.spec.bluemix) === 'object') {
-        if (typeof (this.spec.bluemix.name) === 'string') {
-          this.bluemix.server.name = this.spec.bluemix.name
-          this.bluemix.name = this.spec.bluemix.name
-        }
-        if (this.spec.bluemix.server) {
-          if (typeof (this.spec.bluemix.server.host) === 'string') {
-            this.bluemix.server.host = this.spec.bluemix.server.host
-          }
-          if (typeof (this.spec.bluemix.server.domain) === 'string') {
-            this.bluemix.server.domain = this.spec.bluemix.server.domain
-          }
-          if (typeof (this.spec.bluemix.server.memory) === 'string') {
-            this.bluemix.server.memory = this.spec.bluemix.server.memory
-          }
-          if (typeof (this.spec.bluemix.server.disk_quota) === 'string') {
-            this.bluemix.server.disk_quota = this.spec.bluemix.server.disk_quota
-          }
-          if (typeof (this.spec.bluemix.server.instances) === 'number') {
-            this.bluemix.server.instances = this.spec.bluemix.server.instances
-          }
-          if (typeof (this.spec.bluemix.server.namespace) === 'string') {
-            this.bluemix.server.namespace = this.spec.bluemix.server.namespace
-          }
-          if (typeof (this.spec.bluemix.server.cloudDeploymentType) === 'string') {
-            this.bluemix.server.cloudDeploymentType = this.spec.bluemix.server.cloudDeploymentType
-          }
-          if (typeof (this.spec.bluemix.server.cloudDeploymentOptions) === 'object') {
-            this.bluemix.server.cloudDeploymentOptions = this.spec.bluemix.server.cloudDeploymentOptions
-          }
-        }
-        if (typeof (this.spec.bluemix.openApiServers) === 'object') {
-          this.openApiServers = this.spec.bluemix.openApiServers
-        }
-      }
-
-      // NOTE(tunniclm): Set the domain based on the push notification
-      // region to expose it to the service enablement subgenerator
-      if (this.services.pushnotifications && this.services.pushnotifications.length > 0) {
-        var push = this.services.pushnotifications[0]
-        switch (push.region) {
-          case 'UK': this.bluemix.server.domain = 'eu-gb.bluemix.net'; break
-          case 'SYDNEY': this.bluemix.server.domain = 'au-syd.bluemix.net'; break
-          case 'US_SOUTH': this.bluemix.server.domain = 'ng.bluemix.net'; break
-          // default: don't alter domain
-        }
-      }
-      // NOTE(tunniclm): Convert our format for specifying services
-      // into the one used by generator-ibm-service-enablement
-      // Mapping from our format (keys) to bluemix (values)
-      var serviceMapping = {
-        'appid': 'auth',
-        'objectstorage': 'objectStorage',
-        'cloudant': 'cloudant',
-        'watsonconversation': 'conversation',
-        'redis': 'redis',
-        'mongodb': 'mongodb',
-        'postgresql': 'postgresql',
-        'alertnotification': 'alertNotification',
-        'pushnotifications': 'push',
-        'autoscaling': 'autoscaling'
-      }
-      Object.keys(serviceMapping).forEach(serviceType => {
-        var bluemixServiceProperty = serviceMapping[serviceType]
-        var servicesOfType = this.services[serviceType]
-        if (servicesOfType && servicesOfType.length > 0) {
-          // NOTE: for now only handle 1 service
-          var service = helpers.sanitizeServiceAndFillInDefaults(serviceType, servicesOfType[0])
-          this.bluemix[bluemixServiceProperty] = service.credentials || {}
-          this.bluemix[bluemixServiceProperty].serviceInfo = {
-            name: servicesOfType[0].name,
-            label: servicesOfType[0].label,
-            plan: servicesOfType[0].plan
-          }
-        }
-      })
+      this.bluemix = this.options.bluemix
 
       // Docker configuration
       this.docker = (this.spec.docker === true)
@@ -966,7 +854,6 @@ module.exports = Generator.extend({
           {
             appType: this.appType,
             generatedModule: this.generatedModule,
-            bluemix: this.bluemix,
             appInitCode: this.appInitCode,
             swaggerPath: this.swaggerPath,
             web: this.web,
@@ -1058,7 +945,6 @@ module.exports = Generator.extend({
             appName: this.projectName,
             executableName: this.executableModule,
             generatorVersion: this.generatorVersion,
-            bluemix: this.bluemix,
             web: this.web,
             docker: this.docker,
             hostSwagger: this.hostSwagger,
@@ -1102,13 +988,11 @@ module.exports = Generator.extend({
     createCRUD: function () {
       if (this.appType !== 'crud') return
 
-      if (this.bluemix) {
-        if (!this.fs.exists(this.destinationPath('README.md'))) {
-          this.fs.copy(
-            this.templatePath('bluemix', 'README.md'),
-            this.destinationPath('README.md')
-          )
-        }
+      if (!this.fs.exists(this.destinationPath('README.md'))) {
+        this.fs.copy(
+          this.templatePath('bluemix', 'README.md'),
+          this.destinationPath('README.md')
+        )
       }
 
       // Add the models to the spec
@@ -1156,7 +1040,7 @@ module.exports = Generator.extend({
       this.fs.copyTpl(
         this.templatePath('crud', 'AdapterFactory.swift'),
         this.destinationPath('Sources', this.generatedModule, 'AdapterFactory.swift'),
-        { models: this.models, crudService: crudService, bluemix: this.bluemix }
+        { models: this.models, crudService: crudService }
       )
       this.fs.copy(
         this.templatePath('crud', 'AdapterError.swift'),
@@ -1287,7 +1171,7 @@ module.exports = Generator.extend({
     },
 
     writeDockerFiles: function () {
-      if (!this.docker || this.existingProject || !this.bluemix) return
+      if (!this.docker || this.existingProject) return
       this.composeWith(require.resolve('generator-ibm-cloud-enablement/generators/dockertools'), { force: this.force, bluemix: this.bluemix })
     },
 

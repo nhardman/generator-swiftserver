@@ -61,21 +61,52 @@ module.exports = Generator.extend({
     })
   },
 
+  _isTrue: function(value) {
+      return (value === true || value === 'true');
+  },
+
   initializing: {
     ensureNotInProject: actions.ensureNotInProject,
 
     initSpec: function () {
-      if (this.options.init) {
+       if (this.options.bluemix) {
+        this.skipPrompting = true
+
+        var appName   = this.options.bluemix.name
+        var metrics   = this._isTrue(this.options.metrics)   || undefined
+        var docker    = this._isTrue(this.options.docker)    || undefined
+
+        var web              = (this.appType === 'web' || this.appType === 'bff' || undefined)
+        var hostSwagger      = (this.appType === 'bff' || undefined)
+        var exampleEndpoints = (this.appType === 'bff' || undefined)
+        var swaggerUI        = (this.appType === 'bff' || undefined)
+        var healthcheck      = (this.appType !== 'blank')
+
+        this.spec = {
+          appName: this.appName,
+          appType: 'scaffold',
+          appDir: '.',
+          docker: this.docker,
+          web: this.web,
+          hostSwagger: this.hostSwagger,
+          exampleEndpoints: this.exampleEndpoints,
+          swaggerUI: this.swaggerUI,
+          bluemix: JSON.parse(this.options.bluemix),
+          metrics:   this.metrics,
+          repoType: 'clone',
+          healthcheck: this.healthcheck
+        }
+      } else if (this.options.init) {
         // User passed the --init flag, so no prompts, just generate basic default scaffold
         this.destinationSet = true
         this.skipPrompting = true
         this.appPattern = 'Basic'
         this.spec = {
-          appType: 'scaffold',
-          appName: this.appname,
+          apptype: 'scaffold',
+          appname: this.appname,
           docker: true,
           metrics: true,
-          services: {}
+          bluemix: {}
         }
       } else if (this.options.spec) {
         try {
@@ -83,6 +114,19 @@ module.exports = Generator.extend({
           this.skipPrompting = true
         } catch (err) {
           this.env.error(chalk.red(err))
+        }
+      }
+    },
+
+    initForPrompting: function() {
+      if (this.skipPrompting) return
+      // initialize for prompting
+      this.bluemix = {
+        backendPlatform: 'SWIFT',
+        name: helpers.sanitizeAppName(this.projectName),
+        server: {
+          name: helpers.sanitizeAppName(this.projectName),
+          env: {}
         }
       }
     },
@@ -129,10 +173,17 @@ module.exports = Generator.extend({
     }
   },
 
-  _addService: function (serviceType, service) {
+  _addService: function (serviceType, serviceName, isArray) {
     this.services = this.services || {}
-    this.services[serviceType] = this.services[serviceType] || []
-    this.services[serviceType].push(service)
+    var service = {
+      serviceInfo: {
+        label: helpers.getBluemixServiceLabel(serviceType),
+        name: serviceName,
+        plan: helpers.getBluemixDefaultPlan(serviceType)
+      }
+    }
+    if (isArray) service = [service]
+    this.services[serviceType] = service
   },
 
   prompting: {
@@ -434,11 +485,12 @@ module.exports = Generator.extend({
       }]
       return this.prompt(prompts).then((answers) => {
         if (answers.services.indexOf('Cloudant / CouchDB') !== -1) {
-          this._addService('cloudant', { name: generateServiceName(this.appname, 'Cloudant') })
+          this._addService('cloudant', generateServiceName(this.appname, 'Cloudant'), true)
         }
         if (answers.services.indexOf('Redis') !== -1) {
-          this._addService('redis', { name: generateServiceName(this.appname, 'Redis') })
+          this._addService('redis', generateServiceName(this.appname, 'Redis'))
         }
+        // TODO And so on
         if (answers.services.indexOf('MongoDB') !== -1) {
           this._addService('mongodb', { name: generateServiceName(this.appname, 'MongoDB') })
         }
@@ -446,19 +498,19 @@ module.exports = Generator.extend({
           this._addService('postgresql', { name: generateServiceName(this.appname, 'PostgreSQL') })
         }
         if (answers.services.indexOf('Object Storage') !== -1) {
-          this._addService('objectstorage', { name: generateServiceName(this.appname, 'ObjectStorage') })
+          this._addService('objectStorage', { name: generateServiceName(this.appname, 'ObjectStorage') })
         }
         if (answers.services.indexOf('AppID') !== -1) {
-          this._addService('appid', { name: generateServiceName(this.appname, 'AppID') })
+          this._addService('auth', { name: generateServiceName(this.appname, 'AppID') })
         }
         if (answers.services.indexOf('Watson Conversation') !== -1) {
-          this._addService('watsonconversation', { name: generateServiceName(this.appname, 'WatsonConversation') })
+          this._addService('conversation', { name: generateServiceName(this.appname, 'WatsonConversation') })
         }
         if (answers.services.indexOf('Alert Notification') !== -1) {
-          this._addService('alertnotification', { name: generateServiceName(this.appname, 'AlertNotification') })
+          this._addService('alertNotification', { name: generateServiceName(this.appname, 'AlertNotification') })
         }
         if (answers.services.indexOf('Push Notifications') !== -1) {
-          this._addService('pushnotifications', {
+          this._addService('push', {
             name: generateServiceName(this.appname, 'PushNotifications'),
             region: 'US_SOUTH' })
         }
@@ -490,7 +542,7 @@ module.exports = Generator.extend({
         // NOTE(tunniclm): no need to do anything for memory it is the default
         // if no crudservice is passed to the refresh generator
         if (answer.store === 'Cloudant') {
-          this._addService('cloudant', { name: 'crudDataStore' })
+          this._addService('cloudant', 'crudDataStore')
           this.crudservice = 'crudDataStore'
         }
       })
@@ -511,7 +563,7 @@ module.exports = Generator.extend({
       }]
       return this.prompt(prompts).then((answers) => {
         if (answers.services.indexOf('Auto-scaling') !== -1) {
-          this._addService('autoscaling', { name: generateServiceName(this.appname, 'AutoScaling') })
+          this._addService('autoscaling', generateServiceName(this.appname, 'AutoScaling'))
         }
       })
     },
@@ -530,12 +582,12 @@ module.exports = Generator.extend({
           case 'redis': return 'Redis'
           case 'mongodb': return 'MongoDB'
           case 'postgresql': return 'PostgreSQL'
-          case 'objectstorage': return 'Object Storage'
-          case 'appid': return 'AppID'
+          case 'objectStorage': return 'Object Storage'
+          case 'auth': return 'AppID'
           case 'autoscaling': return 'Auto-scaling'
-          case 'watsonconversation': return 'Watson Conversation'
-          case 'alertnotification': return 'Alert Notification'
-          case 'pushnotifications': return 'Push Notifications'
+          case 'conversation': return 'Watson Conversation'
+          case 'alertNotification': return 'Alert Notification'
+          case 'push': return 'Push Notifications'
           default:
             self.env.error(chalk.red(`Internal error: unknown service type ${serviceType}`))
         }
@@ -570,10 +622,10 @@ module.exports = Generator.extend({
           message: 'Enter name (blank for default):',
           when: (answers) => this.appType !== 'crud'
         },
-        { name: 'cloudantHost', message: 'Enter host name:' },
+        { name: 'cloudantHost', message: 'Enter host name (blank for localhost):' },
         {
           name: 'cloudantPort',
-          message: 'Enter port:',
+          message: 'Enter port (blank for default):',
           validate: (port) => validatePort(port),
           filter: (port) => (port ? parseInt(port) : port)
         },
@@ -593,17 +645,24 @@ module.exports = Generator.extend({
         }
       ]
       return this.prompt(prompts).then((answers) => {
-        this.services.cloudant[0].name = answers.cloudantName || this.services.cloudant[0].name
-        this.services.cloudant[0].credentials = {
-          host: answers.cloudantHost || undefined,
+        var cloudantService = this.services.cloudant[0]
+        this.services.cloudant[0] = {
+          host: host: answers.cloudantHost || undefined,
           port: answers.cloudantPort || undefined,
           secured: answers.cloudantSecured || undefined,
           username: answers.cloudantUsername || undefined,
-          password: answers.cloudantPassword || undefined
+          password: answers.cloudantPassword || undefined,
+          serviceInfo: {
+            label: cloudantService.serviceInfo.label,
+            name: answers.cloudantName || cloudantService.serviceInfo.name,
+            plan: cloudantService.serviceInfo.plan
+          }
         }
       })
     },
 
+    // TODO: and so on (be careful about whether each service is a
+    // 1-element array or just stored directly)
     promptConfigureRedis: function () {
       if (this.skipPrompting) return
       if (!this.servicesToConfigure) return
@@ -782,15 +841,14 @@ module.exports = Generator.extend({
         }
       ]
       return this.prompt(prompts).then((answers) => {
-        this.services.pushnotifications[0].name = answers.pushNotificationsName || this.services.pushnotifications[0].name
-        this.services.pushnotifications[0].credentials = {
-          appGuid: answers.pushNotificationsAppGuid || undefined,
-          appSecret: answers.pushNotificationsAppSecret || undefined
-        }
+        var pushService = this.services.pushnotifications[0]
+        pushService.serviceInfo.name = answers.pushNotificationsName || pushService.serviceInfo.name
+        pushService.appGuid = answers.pushNotificationsAppGuid || undefined
+        pushService.appSecret = answers.pushNotificationsAppSecret || undefined
         switch (answers.pushNotificationsRegion) {
-          case 'US South': this.services.pushnotifications[0].region = 'US_SOUTH'; break
-          case 'United Kingdom': this.services.pushnotifications[0].region = 'UK'; break
-          case 'Sydney': this.services.pushnotifications[0].region = 'SYDNEY'; break
+          case 'United Kingdom': this.bluemix.server.domain = 'eu-gb.bluemix.net'; break
+          case 'Sydney': this.bluemix.server.domain = 'au-syd.bluemix.net'; break
+          case 'US South': this.bluemix.server.domain = 'ng.bluemix.net'; break
           default:
             this.env.error(chalk.red(`Internal error: unknown region ${answers.pushNotificationsRegion}`))
         }
@@ -866,8 +924,6 @@ module.exports = Generator.extend({
     if (this.skipPrompting) return
     // NOTE(tunniclm): This spec object may not exploit all possible functionality,
     // some may only be available via non-prompting route.
-    if (this.autoscale) this._addService('autoscale', { name: this.autoscale })
-
     this.spec = {
       appType: this.appType,
       appName: this.appname,
@@ -879,8 +935,8 @@ module.exports = Generator.extend({
       hostSwagger: this.hostSwagger || undefined,
       swaggerUI: this.swaggerUI || undefined,
       metrics: this.metrics || undefined,
-      services: this.services || {},
-      crudservice: this.crudservice
+      crudservice: this.crudservice,
+      bluemix: Object.assign(this.bluemix, this.services) || {}
     }
   },
 
