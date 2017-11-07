@@ -5,7 +5,7 @@
 # NRH: temporary fix to set the github userid
 GH_USER=nhardman
 GH_REMOTE=fred
-GH_TOKEN=b28a48343ebf66d06a95f06d6a9b893eed7ecec9
+GH_TOKEN=c4650a1f5dab93265db8ef5f2e26d497157b9a3e
 NPM_TOKEN=603ca516-0a6f-4d91-945d-7ff2f63eaa0d
 
 # remove origin remote
