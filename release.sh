@@ -5,7 +5,7 @@
 # NRH: temporary fix to set the github userid
 GH_USER=nhardman
 GH_REMOTE=fred
-GH_TOKEN=0b6d61d0a0545d3cfd6ce5311e7def1a8e0ed5ae
+GH_TOKEN=1da19a05cdbbe1f66c55e56334b3e9d7452c09db
 NPM_TOKEN=603ca516-0a6f-4d91-945d-7ff2f63eaa0d
 
 # remove origin remote
@@ -26,7 +26,7 @@ git merge $GH_REMOTE/master
 echo "push"
 git push $GH_REMOTE develop
 # npm publish 
-echo "//npm-registry.com/:_authToken=${NPM_TOKEN}" >> ~/.npmrc
+echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> ~/.npmrc
 echo "publish"
 npm publish
 
