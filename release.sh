@@ -1,4 +1,4 @@
-# Script to release to NPM and publish tag
+ # Script to release to NPM and publish tag
 
 # REMEMBER: this script is executed in the context of a travis maching.
 
